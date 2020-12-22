@@ -1,0 +1,386 @@
+---
+title: "Assignment 3 Solution"
+author: "Ted Ladas"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r setup, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(eval = TRUE, echo = TRUE)
+library(mice)
+library(dplyr)
+library(tidyr)
+library(JointAI)
+library(corrplot)
+```
+
+*Question 1*
+
+## 1a.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+data(nhanes)
+na = sum(!complete.cases(nhanes)) 
+prc_na = na / nrow(nhanes) 
+```
+After a first exploration of the dataset we conclude that the percentage of missing cases on the `nhanes` dataset is `48%`
+
+## 1b.
+The proportions of variance due to the missing data for each parameter are given by the lambda term. Specifically:
+
+`age: 0.6864`
+`hyp: 0.3504`
+`chl: 0.3041`
+
+Therefore the `age` parameter seem to be most affected by the nonresponse.
+```{r, message=FALSE, warning=FALSE}
+# m = 5 (default value)
+bmi_hat = pool(with(mice(nhanes, seed=1, printFlag=FALSE), lm(bmi ~ age + hyp + chl)))
+bmi_hat[,3][c(1,3,10)]
+```
+## 1c.
+The script below tries to automate and visualize the process in order to be able to potentially scale it. 
+For the six iteration of random seeds and the tree variables, we notice that on seeds `1`, `2`, `3` and `6` the `age` variable is the one with the biggest `lambda` parameter. On `seed = 4` the `chl` variable has the biggest `lambda` and on `seed = 5` it's the `hyp` parameter.
+On my tests up to `1e2` different seeds (not displayed here), the distribution was: `age: 46%`, `hyp: 26%`, `chl: 28%`
+So finally, the results are dependent on the seed. 
+
+\newpage
+
+```{r, message=FALSE, warning=FALSE}
+analyze <- function(data, seeds, models=5){
+  num_of_seeds = seeds
+  dataset = data
+  m = models
+  # Initialize a dataframe to store results
+  df <- data.frame(age = rep(0L, num_of_seeds),
+                   hyp = rep(0L, num_of_seeds),
+                   chl = rep(0L, num_of_seeds),
+                   age_lambda = rep(0L, num_of_seeds),
+                   hyp_lambda = rep(0L, num_of_seeds),
+                   chl_lambda = rep(0L, num_of_seeds))
+  max_lambda <- c(1:num_of_seeds)*0
+  
+  for (i in c(1:num_of_seeds)){
+    bmi_hat = pool(with(mice(dataset, seed=i, printFlag=FALSE, m=m), lm(bmi ~ age + hyp + chl)))
+    df[i,1:3] <- bmi_hat[2:4,3][1:3,3] # store estimates
+    df[i,4:6] <- bmi_hat[2:4,3][1:3,10] # store lambda values
+    
+    # Not the cleanest code
+    # Logic loop in order to find the maximum per row of the above dataframe of the lambda parameters stored. 
+    
+    max_lambda[i] <- which.max(t(df[4:6])[,i])
+    if (max_lambda[i]==1){
+      max_lambda[i] <- 'age'
+    }
+    else if (max_lambda[i]==2){
+      max_lambda[i] <- 'hyp'
+    }
+    else {
+      max_lambda[i] <- 'chl'
+    }
+  }
+  
+  # Counts per variable. 
+  # Shows on num_of_seeds iterations which variable had the biggest lambda score and adds them up.
+  counts <- data.frame(age_counts = length(which(max_lambda == 'age')),
+                       hyp_counts = length(which(max_lambda == 'hyp')),
+                       chl_counts = length(which(max_lambda == 'chl')))
+  
+  print(df)
+  cat('\n')
+  print(max_lambda)
+  cat('\n')
+  print(counts)
+  
+  barplot(as.matrix(counts),
+          col='lightblue',
+          main = 'Biggest lambda per variable',
+          xlab = 'Variables',
+          ylab = 'Counts')
+}
+
+analyze(data=nhanes, seeds=6)
+```
+
+## 1d.
+With the above work on the function, now we can just call the function `analyze` with the extra argument `models=10` and we have our results so we can focus on the interpretation.
+
+For `M=100` we see exactly what we expected, which is the reduction of the variability since `age` is most effected by the nonresponse. However, even for a small number of seeds there is a noticeable increase in time until execution of the models, since we are now calculating 3 coefficients for 6 seeds and 100 models. The overall $\mathcal{O}$ is $\mathcal{O}(CSM)$ where `C: coefficients`, `S: number of seeds`,`M: number of models`, which is expensive. Our dataset is small so the calculations of all the coefficients don't take that much time, but in order to calculate the coefficients which are given from: $b=(X^TX)^{-1}X^TY$ 
+we need  $\mathcal{O}(N^3)$ where `N: number or rows in dataset X` which can get be very expensive very quickly. 
+
+When comparing between the model with `M=5` and `M=100` for this specific dataset, I would prefer the `M=100`. But I think that in reality I would chose a more moderate `M=50`.
+
+```{r, message=FALSE, warning=FALSE}
+analyze(data=nhanes, seeds=6, models=100)
+
+```
+
+*Question 2*
+
+We use the `method` argument in order to distinguish the two imputation methods form each other, the Stochastic Regression Imputation as well as the bootstrap method. 
+We have them taken the attributes of `2.5 %` and `97.5 %` Confidence intervals of the two methods for each dataset and stored them. It the true value of `3` is contained within the interval then we can check it with 2 `if` statements for each method. 
+We observe that the bootstraps method CI is typically wider than the SRI's CI, so it 'misses' the true value of the distribution more.
+`sri = 88%`
+`boot = 95%`
+
+```{r, message=FALSE, warning=FALSE}
+load('dataex2.Rdata') 
+sri = 0
+boot = 0
+models = 20 # fixed value.
+set_seed = 1 # fixed value for reproducability of the result.
+beta_1 = 3
+for(i in c(1:100)){
+  
+  sri_imp = mice(dataex2[,,i],
+                 m=models,
+                 seed=set_seed,
+                 printFlag=FALSE,
+                 method="norm.nob")
+  
+  boot_imp = mice(dataex2[,,i],
+                  m=models,
+                  seed=set_seed,
+                  printFlag=FALSE,
+                  method="norm.boot")
+  
+  sri_results  = pool(with(sri_imp, lm(Y ~ X)))
+  boot_results = pool(with(boot_imp, lm(Y ~ X)))
+  
+  ci_sri_low  = summary(sri_results , conf.int=TRUE)$`2.5 %`[2]
+  ci_sri_hi   = summary(sri_results , conf.int=TRUE)$`97.5 %`[2]
+  ci_boot_low = summary(boot_results, conf.int=TRUE)$`2.5 %`[2]
+  ci_boot_hi  = summary(boot_results, conf.int=TRUE)$`97.5 %`[2]
+  
+  if(ci_sri_low<=beta_1 & ci_sri_hi>beta_1){
+    sri = sri + 1
+  }
+  
+  if(ci_boot_low<=beta_1 & ci_boot_hi>beta_1){
+    boot = boot + 1
+  }
+}
+sri
+boot
+```
+
+
+*Question 3*
+
+In order to answer this question we need to carefully define the problem in a mathematical way. After that the solution should follow.
+
+- Case (i)
+
+$\hat{y} = \frac{1}{M}\Sigma_{m=1}^M\hat{y_i}^{(m)} ~~ (1)$
+
+where
+
+$\hat{y_i}^{(1)} = \hat{\beta_0}^{(1)} + \hat{\beta_1}^{(1)}x_{1i} + \hat{\beta_2}^{(1)}x_{2i} + ... + \hat{\beta_k}^{(1)}x_{ki} + \epsilon_i$
+$\hat{y_i}^{(2)} = \hat{\beta_0}^{(2)} + \hat{\beta_1}^{(2)}x_{1i} + \hat{\beta_2}^{(2)}x_{2i} + ... + \hat{\beta_k}^{(2)}x_{ki} + \epsilon_i$
+$.$
+$.$
+$.$
+$\hat{y_i}^{(M)} = \hat{\beta_0}^{(M)} + \hat{\beta_1}^{(M)}x_{1i} + \hat{\beta_2}^{(M)}x_{2i} + ... + \hat{\beta_k}^{(M)}x_{ki} + \epsilon_i$
+
+and $~\epsilon_i \overset{{\text{iid}}}{\sim} N(0,\sigma_\epsilon^2)$
+
+- Case (ii)
+
+$\hat{\beta_0}^* = \frac{1}{M}\Sigma_{m=1}^M\hat{\beta_0}^{(m)}, ..., \hat{\beta_k}^* = \frac{1}{M}\Sigma_{m=1}^M\hat{\beta_k}^{(m)}$
+$\Rightarrow$ $\hat{y_i}^* = \hat{\beta_0}^* + \hat{\beta_1}^*x_{1i} + \hat{\beta_2}^*x_{2i} + ... +  + \hat{\beta_k}^*x_{ki} +u_i ~~(2)$
+
+and $~u_i \overset{{\text{iid}}}{\sim} N(0,\sigma_u^2)$
+
+So if we work our way from $(1)$ to $(2)$ algebraically then we can show that `Case (i)` and `Case (ii)` coincide:
+
+$\overset{{\text{(1)}}}{\Rightarrow} \hat{y} = \frac{1}{M}\Sigma_{m=1}^M\hat{y_i}^{(m)} = \frac{1}{M}\Sigma_{m=1}^M[\hat{\beta_0}^{(m)} + \hat{\beta_1}^{(m)}x_{1i} + \hat{\beta_2}^{(m)}x_{2i} + ... + \hat{\beta_k}^{(m)}x_{ki} + \epsilon_i] = \frac{1}{M}\Sigma_{m=1}^M\hat{\beta_0}^{(m)} + \frac{1}{M}\Sigma_{m=1}^M\hat{\beta_1}^{(m)}x_{1i} + \frac{1}{M}\Sigma_{m=1}^M\hat{\beta_2}^{(m)}x_{2i} + ... + \frac{1}{M}\Sigma_{m=1}^M\hat{\beta_k}^{(m)}x_{ki} +m\epsilon_i ~~(3)$
+
+We set $m\epsilon_i = u_i \Rightarrow ~~u_i\overset{{\text{iid}}}{\sim} N(mE[\epsilon_i],\sigma_\epsilon^2) = N(0, \sigma_u^2), ~\text{with}~~ \sigma_u^2 = \sigma_\epsilon^2 ~~(4)$
+
+
+$(3),(4) \Rightarrow \hat{y_i} = \hat{\beta_0}^* + \hat{\beta_1}^*x_{1i}+ \hat{\beta_2}^*x_{2i} + ... +  + \hat{\beta_k}^*x_{ki} + u_i = \frac{1}{M}\Sigma_{m=1}^M{y_i^*}^{(m)} = \hat{y_i}^* \Rightarrow \hat{y} = \hat{y}^* ~~\square$ 
+
+*Question 4*
+
+
+*Question 5*
+
+We want to find how weight is affected by gender, height and waist circumference from the NHANES2 dataset. 
+
+$\texttt{wht}=\beta_0 +\beta_1\texttt{gender} +\beta_2\texttt{age} +\beta_3\texttt{hgt} +\beta_4\texttt{WC} +\epsilon, ~~ \epsilon\sim N(0,\sigma^2)$
+
+So at first we inspeact the data.
+
+```{r, message=FALSE, warning=FALSE}
+load('NHANES2.Rdata')
+nhanes2 <- NHANES2
+summary(nhanes2)
+md_pattern(nhanes2, pattern = FALSE)
+```
+
+We quickly realize that we have a lot of missing values on the important variables so we need to impute them.
+
+Firstly we will try to visualize the distributions of all the variables in order to get a first feeling for our dataset. 
+We can extract some meaning full information form the graphs, such as `age` looks quite Uniform(20,80), maybe with a heave decreasing tail, `hgt` can be approximated by Normal around `1.7` `wgt` and `SBP` look like they follow some kind of shifted Beta distribution etc. 
+
+```{r, message=FALSE, warning=FALSE}
+par(mar=c(1,1,1,1))
+plot_all(nhanes2)
+```
+
+Before starting with imposing missing values, we need to inspect what methods are automatically attributed to the missing data values. 
+We notice that `mice` has chosen `pmm` for the height variable while from our graphs we see that we could change that for a Normal.
+
+```{r, message=FALSE, warning=FALSE}
+imp0 <- mice(nhanes2, maxit=0)
+imp0
+```
+
+Which is what we do with the following chunk of code.
+
+```{r, message=FALSE, warning=FALSE}
+methods <- imp0$method
+methods['hgt'] <- 'norm'
+methods
+```
+
+Next step to our analysis, is to set the minimum and the maximum for all the numeric variables that we will try to imputing 
+On this specific example, I tried to automate the procedure by finding the min and the max for all the variables and then setting those values to be the barriers for each variable.
+
+```{r, message=FALSE, warning=FALSE}
+min_bili <- min(nhanes2$bili)
+max_bili <- max(nhanes2$bili)
+min_chol <- min(nhanes2$chol)
+max_chol <- max(nhanes2$chol)
+min_HDL <- min(nhanes2$HDL)
+max_HDL <- max(nhanes2$HDL)
+min_hgt <- min(nhanes2$hgt)
+max_hgt <- max(nhanes2$hgt)
+min_SBP <- min(nhanes2$SBP)
+max_SBP <- max(nhanes2$SBP)
+min_WC <- min(nhanes2$WC)
+max_WC <- max(nhanes2$WC)
+
+post <- imp0$post
+post['bili'] <- 'imp[[j]][,i] <- sqeeze(imp[[j]][,i], c(min_bili, max_bili)'
+post['chol'] <- 'imp[[j]][,i] <- sqeeze(imp[[j]][,i], c(min_chol, max_chol)'
+post['HDL']  <- 'imp[[j]][,i] <- sqeeze(imp[[j]][,i], c(min_HDL , max_HDL )'
+post['hgt']  <- 'imp[[j]][,i] <- sqeeze(imp[[j]][,i], c(min_hgt , max_hgt )'
+post['SBP']  <- 'imp[[j]][,i] <- sqeeze(imp[[j]][,i], c(min_SBP , max_SBP )'
+post['WC']   <- 'imp[[j]][,i] <- sqeeze(imp[[j]][,i], c(min_WC  , max_WC  )'
+```
+
+Now our analysis can begin. On this part, we will try to impute the missing values by using 30 copies of the dataset and running them for 20 steps. This is a critical point in our analysis because in order to go further and still trust our result we need to somehow convene ourselves that our chains have converged. Unfortunately we know that we cannot *prove* convergence, we can only examine various plots and graphs in order to stop any hard patterns or trends. In this example we are going to examine the trace and histogram plots. 
+
+On this point I would like to spend a little time on the hyperparameters `maxit` and `m`, as well as the `seed`. A good way to set these hyperparameters would be through a grid search method, where we would loop through `maxit` $\in(10,100)$, `m`$\in(10,100)$ and repeat the process for some random seeds in order to exclude the possibility of the random seed affecting the results. On each iteration we would store for each chain the Brooks-Gelman-Rubin statistic, which measures the proportion of between to within variability. Then after the grid search we would average on all `seeds` the `BGR` statistic and finally we would pick the one where it's closest to one. This was out of the scope of the exercise but I wanted to mention it as a potentially improvement and automation of this algorithm. 
+
+Finally we see that the `loggedEvents` are NULL.
+
+```{r, message=FALSE, warning=FALSE}
+# analysis
+imp <- mice(nhanes2,
+            method=methods,
+            maxit=20,
+            m=30,
+            seed=1,
+            printFlag=FALSE)
+imp$loggedEvents # NULL
+# TODO: grid search
+```
+
+So by looking at the chains we don't spot anything too out of the ordinary. We might be able to see some strong patterns on the `educ` variable, but that it to be expected since it's a categorical variable with only a few levels and only 0.2% of their entries missing. 
+So for the moment every chain looks to be normal and well behaved.
+
+```{r, message=FALSE, warning=FALSE}
+# checking convergence
+plot(imp, layout=c(4,4))
+```
+
+However, after seeing the Histograms we start to see that something might be wrong with the `hgt` variable after all. We can clearly see that the imposed lines are not following very well the blue line, indicating that the imposed values don't have the same distribution as the complete cases on the original dataset. Furthermore, we see that the blue line looks like a mixture model of two Normals, or a *Binormal* distribution, which makes sense, because the distribution of the whole population consists males and females and we can assume that they have statistically significant average heights. Our imposed data not only missed the mean of the distribution, but they also missed the structure of the distribution. `hgt` was the only variable that we changed the imposing method, so it's clear not that we should change it back.
+```{r, message=FALSE, warning=FALSE}
+# maxit = 20, m=30 no strong patterns visible
+
+densityplot(imp)
+# height's actual distribution appears to be biNormal which makes sense since height has a big correlation with sex.
+# it appears as if the imputed values for height are a bit biased towards lower numbers, however they do cover the whole spectrum (1.2 - 2) so
+# we should not be to worries about this. 
+```
+Taking a more granular look we see the problem clearly on the males. The imposed distributions for height of the `M=30` datasets when `gender=male` are very poorly approximating the complete cases.
+
+```{r, message=FALSE, warning=FALSE}
+
+densityplot(imp, ~hgt|gender, ylim=c(0,15))
+#here we can see more clearly where the problem on the above diagram comes from. It comes from the estimates of the sex=male
+# it doesn't really cover very well the spectrum since it over attributes the median ~1.7...
+```
+
+After changing the method back to `pmm` from `norm` we see a much better coverage hense it should stay like that. 
+
+```{r, message=FALSE, warning=FALSE}
+methods['hgt'] <- 'pmm'
+imp <- mice(nhanes2,
+            method=methods,
+            maxit=20,
+            m=30,
+            seed=1,
+            printFlag=FALSE)
+imp$loggedEvents # NULL
+densityplot(imp, ~hgt|gender, ylim=c(0,20))
+```
+
+So after changing the method back, we can start our analysis and see our model. 
+Before that I would like to see the correlation plot for our dependent variables in order have a feeling of multicolinearity.
+It's very evident that the `WC` is correlated to `age` and to `hgt`. From the theory of OLS we know that the OLS method will give unbiased estimators in the presence of multicolinearity, but not efficient ones. Hence the $R^2$ produced will be slightly overestimated. 
+Whit that in mind the final model shows that Weight is mostly influenced by height since our $\hat{\beta_3} = 52$, which makes total sense. All other variables coefficients have relatively little influence on the weight. An important observation is also that genders coefficient, has a `p-values` of `0.122` which is statistically insignificant. That result combined with the multicolinearity we observed from the correlation diagram could indicate that a simpler model, one without gender as an independent variable could be a better one. 
+
+```{r, message=FALSE, warning=FALSE}
+comp1 <- complete(imp, 1)
+
+# proceed to analysis
+model_data <- comp1[,c(4,7,12)]
+M <- cor(model_data)
+corrplot(M)
+
+fit <- with(imp, lm(wgt ~ gender + age + hgt + WC))
+summary(fit$analyses[[1]])
+```
+
+Finally we need to calculate our confidence intervals for our coefficients and compute the $adj~R^2$.
+so we need to make our final checks in order to trust the analysis.
+We need to check the second big disease a linear regression model might have, heteroskedasticity. 
+
+By plotting the residuals against the fitted values, we see that they are centered around `0` which is a good thing. 
+However we also notice that the variance doesn't remain the same as it get's bigger the furthers right we move on the x-axis. It looks mostly like a cloud though which is a good sign so I would say that no further action is required. 
+Similar conclusions can be reached when checking the QQ-plot with the tails being a bit of which is always acceptable to that extend.
+
+```{r, message=FALSE, warning=FALSE}
+plot(fit$analyses[[1]]$fitted.values, residuals(fit$analyses[[1]]),
+xlab = "Fitted values", ylab = "Residuals") 
+
+# QQ plot
+qqnorm(rstandard(fit$analyses[[1]]), xlim = c(-4, 4), ylim = c(-6, 6))
+qqline(rstandard(fit$analyses[[1]]), col = 2) 
+
+# pooling 
+pooled_ests <- pool(fit)
+summary(pooled_ests, conf.int = TRUE)
+pool.r.squared(pooled_ests, adjusted = TRUE)
+```
+
+We present here the final confidence intervals per variable coefficient and the final $adj~R^2 = 85.6%$ which is a good indication that our model is a good fit to the data. However of course as said earlier we have to keep in mind that we have observed some multicolinearity on the model and potentially some heteroskedasticity, which both have an effect on the  $adj ~~ R^2$
+
+All code and dataset can be found on github at: https://github.com/TedOiler/ida_assignment_3
+
+**Happy Christmas and a happy new year**
+
+             *
+            /.\
+           /..'\
+           /'.'\
+          /.''.'\
+          /.'.'.\
+
+
+
