@@ -204,6 +204,56 @@ $(3),(4) \Rightarrow \hat{y_i} = \hat{\beta_0}^* + \hat{\beta_1}^*x_{1i}+ \hat{\
 
 *Question 4*
 
+- 4a.
+
+In order to run the model $y_i = \beta_0 + \beta_1x_{1i} + \beta_2x_{2i} + \beta_3x_{1i}x_{2i} + \epsilon_i$ from `dasetex4` we need to first create a variable called $x_3 = x_1*x_2$ in order to have everything we need. 
+Then on the next step we need to change the imputation method of this `$x_3$ variable to $x_1 * x_2$ and make sure to change it's visiting sequence in order to impute it last, after the others. 
+
+Our final 95% confidence intervals for the coefficients of the independent variables are: 
+$b_0 = 2.24, (1.97, 2.52)$
+$b_1 = 1.15, (0.82, 1.47)$
+$b_2 = 1.59, (1.44, 1.73)$
+$b_3 = 0.87, (0.70, 1.04)$
+
+Finally we are producing the Trace plots in order to check convergence. 
+Everything seems fine so we are clear to move to the next analysis.
+
+```{r, message=FALSE, warning=FALSE}
+load('dataex4.Rdata')
+models = 50
+set_seed = 1
+dataex4['x3'] <- dataex4$x1*dataex4$x2
+
+imp0_a = mice(dataex4,
+              m=models,
+              seed=set_seed,
+              printFlag=FALSE,
+              maxit=0)
+meth_a <- imp0_a$method
+meth_a['x3'] <- '~I(x1*x2)'
+
+pred_a <- imp0_a$predictorMatrix
+pred_a[c('x1','x2'), 'x3'] <- 0
+pred_a[,c('x1','x2')] <- 0
+pred_a['x1','x2'] <- 1
+pred_a['x2','x1'] <- 1
+pred_a
+
+vis_seq_a <- imp0_a$visitSequence
+vis_seq_a #x3 is already the last variable imputed so we are fine.
+
+
+imp_a = imp0_a = mice(dataex4,
+              m=models,
+              seed=set_seed,
+              printFlag=FALSE,
+              predictorMatrix=pred_a,
+              visitSequence=vis_seq_a)
+
+estimates_a = summary(pool(with(imp_a, lm(y~x1+x2+x1*x2))), conf.int=TRUE)
+estimates_a
+plot(imp_a)
+```
 
 *Question 5*
 
@@ -211,7 +261,7 @@ We want to find how weight is affected by gender, height and waist circumference
 
 $\texttt{wht}=\beta_0 +\beta_1\texttt{gender} +\beta_2\texttt{age} +\beta_3\texttt{hgt} +\beta_4\texttt{WC} +\epsilon, ~~ \epsilon\sim N(0,\sigma^2)$
 
-So at first we inspeact the data.
+So at first we inspect the data.
 
 ```{r, message=FALSE, warning=FALSE}
 load('NHANES2.Rdata')
