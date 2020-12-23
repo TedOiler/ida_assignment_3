@@ -2,9 +2,9 @@
 title: "Assignment 3 Solution"
 author: "Ted Ladas"
 output:
+  pdf_document: default
   html_document:
     df_print: paged
-  pdf_document: default
 ---
 
 ```{r setup, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
@@ -16,7 +16,7 @@ library(JointAI)
 library(corrplot)
 ```
 
-All code and dataset can be found on github at: https://github.com/TedOiler/ida_assignment_3
+All code available on github at: https://github.com/TedOiler/ida_assignment_3
 
 ## Question 1
 
@@ -24,8 +24,8 @@ All code and dataset can be found on github at: https://github.com/TedOiler/ida_
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
 data(nhanes)
-na = sum(!complete.cases(nhanes)) 
-prc_na = na / nrow(nhanes) 
+na = sum(!complete.cases(nhanes))
+prc_na = na / nrow(nhanes)
 ```
 After a first exploration of the dataset we conclude that the percentage of missing cases on the `nhanes` dataset is `48%`
 
@@ -43,10 +43,10 @@ bmi_hat = pool(with(mice(nhanes, seed=1, printFlag=FALSE), lm(bmi ~ age + hyp + 
 bmi_hat[,3][c(1,3,10)]
 ```
 ### 1c.
-The script below tries to automate and visualize the process in order to be able to potentially scale it. 
+The script below tries to automate and visualize the process in order to be able to potentially scale it.
 For the six iteration of random seeds and the tree variables, we notice that on seeds `1`, `2`, `3` and `6` the `age` variable is the one with the biggest `lambda` parameter. On `seed = 4` the `chl` variable has the biggest `lambda` and on `seed = 5` it's the `hyp` parameter.
 On my tests up to `1e2` different seeds (not displayed here), the distribution was: `age: 46%`, `hyp: 26%`, `chl: 28%`
-So finally, the results are dependent on the seed. 
+So finally, the results are dependent on the seed.
 
 \newpage
 
@@ -63,15 +63,15 @@ analyze <- function(data, seeds, models=5){
                    hyp_lambda = rep(0L, num_of_seeds),
                    chl_lambda = rep(0L, num_of_seeds))
   max_lambda <- c(1:num_of_seeds)*0
-  
+
   for (i in c(1:num_of_seeds)){
     bmi_hat = pool(with(mice(dataset, seed=i, printFlag=FALSE, m=m), lm(bmi ~ age + hyp + chl)))
     df[i,1:3] <- bmi_hat[2:4,3][1:3,3] # store estimates
     df[i,4:6] <- bmi_hat[2:4,3][1:3,10] # store lambda values
-    
+
     # Not the cleanest code
-    # Logic loop in order to find the maximum per row of the above dataframe of the lambda parameters stored. 
-    
+    # Logic loop in order to find the maximum per row of the above dataframe of the lambda parameters stored.
+
     max_lambda[i] <- which.max(t(df[4:6])[,i])
     if (max_lambda[i]==1){
       max_lambda[i] <- 'age'
@@ -83,19 +83,19 @@ analyze <- function(data, seeds, models=5){
       max_lambda[i] <- 'chl'
     }
   }
-  
-  # Counts per variable. 
+
+  # Counts per variable.
   # Shows on num_of_seeds iterations which variable had the biggest lambda score and adds them up.
   counts <- data.frame(age_counts = length(which(max_lambda == 'age')),
                        hyp_counts = length(which(max_lambda == 'hyp')),
                        chl_counts = length(which(max_lambda == 'chl')))
-  
+
   print(df)
   cat('\n')
   print(max_lambda)
   cat('\n')
   print(counts)
-  
+
   barplot(as.matrix(counts),
           col='lightblue',
           main = 'Biggest lambda per variable',
@@ -109,8 +109,8 @@ analyze(data=nhanes, seeds=6)
 ### 1d.
 With the above work on the function, now we can just call the function `analyze` with the extra argument `models=10` and we have our results so we can focus on the interpretation.
 
-For `M=100` we see exactly what we expected, which is the reduction of the variability since `age` is most effected by the nonresponse. However, even for a small number of seeds there is a noticeable increase in time until execution of the models, since we are now calculating 3 coefficients for 6 seeds and 100 models. The overall $\mathcal{O}$ is $\mathcal{O}(CSM)$ where `C: coefficients`, `S: number of seeds`,`M: number of models`, which is expensive. Our dataset is small so the calculations of all the coefficients don't take that much time, but in order to calculate the coefficients which are given from: $b=(X^TX)^{-1}X^TY$ 
-we need  $\mathcal{O}(N^3)$ where `N: number or rows in dataset X` which can get be very expensive very quickly. 
+For `M=100` we see exactly what we expected, which is the reduction of the variability since `age` is most effected by the nonresponse. However, even for a small number of seeds there is a noticeable increase in time until execution of the models, since we are now calculating 3 coefficients for 6 seeds and 100 models. The overall $\mathcal{O}$ is $\mathcal{O}(CSM)$ where `C: coefficients`, `S: number of seeds`,`M: number of models`, which is expensive. Our dataset is small so the calculations of all the coefficients don't take that much time, but in order to calculate the coefficients which are given from: $b=(X^TX)^{-1}X^TY$
+we need  $\mathcal{O}(N^3)$ where `N: number or rows in dataset X` which can get be very expensive very quickly.
 
 When comparing between the model with `M=5` and `M=100` for this specific dataset, I would prefer the `M=100`. But I think that in reality I would chose a more moderate `M=50`.
 
@@ -121,45 +121,45 @@ analyze(data=nhanes, seeds=6, models=100)
 
 ## Question 2
 
-We use the `method` argument in order to distinguish the two imputation methods form each other, the Stochastic Regression Imputation as well as the bootstrap method. 
-We have them taken the attributes of `2.5 %` and `97.5 %` Confidence intervals of the two methods for each dataset and stored them. It the true value of `3` is contained within the interval then we can check it with 2 `if` statements for each method. 
+We use the `method` argument in order to distinguish the two imputation methods form each other, the Stochastic Regression Imputation as well as the bootstrap method.
+We have them taken the attributes of `2.5 %` and `97.5 %` Confidence intervals of the two methods for each dataset and stored them. It the true value of `3` is contained within the interval then we can check it with 2 `if` statements for each method.
 We observe that the bootstraps method CI is typically wider than the SRI's CI, so it 'misses' the true value of the distribution more.
 `sri = 88%`
 `boot = 95%`
 
 ```{r, message=FALSE, warning=FALSE}
-load('dataex2.Rdata') 
+load('dataex2.Rdata')
 sri = 0
 boot = 0
 models = 20 # fixed value.
 set_seed = 1 # fixed value for reproducability of the result.
 beta_1 = 3
 for(i in c(1:100)){
-  
+
   sri_imp = mice(dataex2[,,i],
                  m=models,
                  seed=set_seed,
                  printFlag=FALSE,
                  method="norm.nob")
-  
+
   boot_imp = mice(dataex2[,,i],
                   m=models,
                   seed=set_seed,
                   printFlag=FALSE,
                   method="norm.boot")
-  
+
   sri_results  = pool(with(sri_imp, lm(Y ~ X)))
   boot_results = pool(with(boot_imp, lm(Y ~ X)))
-  
+
   ci_sri_low  = summary(sri_results , conf.int=TRUE)$`2.5 %`[2]
   ci_sri_hi   = summary(sri_results , conf.int=TRUE)$`97.5 %`[2]
   ci_boot_low = summary(boot_results, conf.int=TRUE)$`2.5 %`[2]
   ci_boot_hi  = summary(boot_results, conf.int=TRUE)$`97.5 %`[2]
-  
+
   if(ci_sri_low<=beta_1 & ci_sri_hi>beta_1){
     sri = sri + 1
   }
-  
+
   if(ci_boot_low<=beta_1 & ci_boot_hi>beta_1){
     boot = boot + 1
   }
@@ -180,14 +180,18 @@ $\hat{y} = \frac{1}{M}\Sigma_{m=1}^M\hat{y_i}^{(m)} ~~ (1)$
 where
 
 $\hat{y_i}^{(1)} = \hat{\beta_0}^{(1)} + \hat{\beta_1}^{(1)}x_{1i} + \hat{\beta_2}^{(1)}x_{2i} + ... + \hat{\beta_k}^{(1)}x_{ki} + \epsilon_i$
+
+
 $\hat{y_i}^{(2)} = \hat{\beta_0}^{(2)} + \hat{\beta_1}^{(2)}x_{1i} + \hat{\beta_2}^{(2)}x_{2i} + ... + \hat{\beta_k}^{(2)}x_{ki} + \epsilon_i$
-\newline
-$.$
-\newline
-$.$
-\newline
-$.$
-\newline
+
+
+.
+
+.
+
+.
+
+
 $\hat{y_i}^{(M)} = \hat{\beta_0}^{(M)} + \hat{\beta_1}^{(M)}x_{1i} + \hat{\beta_2}^{(M)}x_{2i} + ... + \hat{\beta_k}^{(M)}x_{ki} + \epsilon_i$
 
 and $~\epsilon_i \overset{{\text{iid}}}{\sim} N(0,\sigma_\epsilon^2)$
@@ -206,19 +210,29 @@ $\overset{{\text{(1)}}}{\Rightarrow} \hat{y} = \frac{1}{M}\Sigma_{m=1}^M\hat{y_i
 We set $m\epsilon_i = u_i \Rightarrow ~~u_i\overset{{\text{iid}}}{\sim} N(mE[\epsilon_i],\sigma_\epsilon^2) = N(0, \sigma_u^2), ~\text{with}~~ \sigma_u^2 = \sigma_\epsilon^2 ~~(4)$
 
 
-$(3),(4) \Rightarrow \hat{y_i} = \hat{\beta_0}^* + \hat{\beta_1}^*x_{1i}+ \hat{\beta_2}^*x_{2i} + ... +  + \hat{\beta_k}^*x_{ki} + u_i = \frac{1}{M}\Sigma_{m=1}^M{y_i^*}^{(m)} = \hat{y_i}^* \Rightarrow \hat{y} = \hat{y}^* ~~\square$ 
+$(3),(4) \Rightarrow \hat{y_i} = \hat{\beta_0}^* + \hat{\beta_1}^*x_{1i}+ \hat{\beta_2}^*x_{2i} + ... +  + \hat{\beta_k}^*x_{ki} + u_i = \frac{1}{M}\Sigma_{m=1}^M{y_i^*}^{(m)} = \hat{y_i}^* \Rightarrow \hat{y} = \hat{y}^* ~~\square$
 
-*Question 4*
+## Question 4
 
 ### 4a.
 
-On this Naive model where we impute `x1` and then use this values in order to create the $x_1*x_2$ variable. We see a good mixing with `m=20` on `seed=1` on the trace plots, which is a good indication that everything goes along smoothly. We are not changing anything on the predictor matrix and we are using `pmm` for `y` and `x1`. 
+On this Naive model where we impute `x1` and then use this values in order to create the $x_1*x_2$ variable. We see a good mixing with `m=20` on `seed=1` on the trace plots, which is a good indication that everything goes along smoothly. We are not changing anything on the predictor matrix and we are using `pmm` for `y` and `x1`.
 
-Our final 95% confidence intervals for the coefficients of the independent variables for the naive case are: 
+Our final 95% confidence intervals for the coefficients of the independent variables for the naive case are:
+
+
 $b_0 = 1.59, (1.40, 1.78)$
+
+
 $b_1 = 1.41, (1.22, 1.60)$
+
+.
 $b_2 = 1.96, (1.86, 2.07)$
+
+
 $b_3 = 0.75, (0.64, 0.87)$
+
+
 
 
 ```{r, message=FALSE, warning=FALSE}
@@ -250,14 +264,25 @@ plot(imp_a)
 ### 4b.
 In order to set a passive imputation method for $x_3 = x_1 * x_2$. To achieve that we need to change the predicting `method` and the `predictorMatrix` accordingly.
 Our 95% CI for our coefficient is:
-$b_0 = 2.17, (1.89, 2.43)$
-$b_1 = 0.97, (0.70, 1.25)$
-$b_2 = 1.61, (1.47, 1.76)$
-$b_3 = 0.94, (0.80, 1.09)$
+
+
+$b_0 = 1.55, (1.38, 1.73)$
+
+
+$b_1 = 1.19, (1.00, 1.38)$
+
+
+$b_2 = 2.00, (1.90, 2.09)$
+
+
+$b_3 = 0.87, (0.76, 0.99)$
+
+
 
 Now our trace plots are showing evidence of good mixing for both $x_1$ and $x_3$, so we are clear to move to the next analysis.
-One final note is that for some reason the $\beta_2$ parameter is not equal to $2$ as given on the exercise definition.
-However this is totally explainable as by introducing the `x3` variable into the model, which has perfect multicolinearity with `x1` and `x2` the estimates are biased.
+This is a much better model as we don't use `y` as a predictor of `x3` which would introduce a cyclic relation of `y` effecting `x3` and `x3` effecting `y`.
+We also prevent `x3` to be used to impose `x1` and `x2`.
+This results in much better $\beta_0,\beta_1,\beta_2,\beta_3$, that are close to the values given on the problem definition.
 
 ```{r, message=FALSE, warning=FALSE}
 dataex4$x3 <- dataex4$x1 * dataex4$x2
@@ -272,11 +297,7 @@ meth_b['x3'] <- '~I(x1*x2)'
 
 pred_b <- imp1$predictorMatrix
 pred_b[c('x1','x2'), 'x3'] <- 0
-pred_b[,c('x1','x2')] <- 0
-pred_b['x1','x2'] <- 1 
-pred_b['x2','x1'] <- 1 
-#pred_b
-
+pred_b['x3', 'y'] <- 0
 vis_seq_b <- imp1$visitSequence
 vis_seq_b #x3 is already the last variable imputed so we are fine.
 
@@ -294,12 +315,21 @@ plot(imp_b)
 ```
 
 ### 4c.
-On this example we want to predict the composite variable `x3` by `pmm`, and use it to also impose the missing values on `x1` as well. So we make the changes and the final 95% CI is: 
+On this example we want to predict the composite variable `x3` by `pmm`, and use it to also impose the missing values on `x1` as well. So we make the changes and the final 95% CI is:
+
 
 $b_0 = 1.50, (1.34, 1.65)$
+
+
 $b_1 = 1.00, (0.84, 1.16)$
+
+
 $b_2 = 2.02, (1.93, 2.11)$
+
+
 $b_3 = 1.01, (0.93, 1.10)$
+
+
 
 *However* our trace plot have a *noticeably big* trend on both `x1` and `x3` imputed values. This is not a good indication and it's going to be further explained below.
 ```{r, message=FALSE, warning=FALSE}
@@ -317,7 +347,7 @@ plot(imp_c)
 
 ### 4d.
 
-The reason we observe this behavior when we impute `x3` as _just another variable_, and the obvious conceptual drawback is that we have information $x_3 = x_1*x_2$ but we disregard it. This introduced bias in our model, and our chains don't converge. So for all the cases where $x_1$ and $x_2$ are observed, our $x_3$ variable follows the above relation and for all the other, it's imputed randomly using `pmm`. The method that makes more sense according to the definitions given and the analysis we want to do is the second approach. 
+The reason we observe this behavior when we impute `x3` as _just another variable_, and the obvious conceptual drawback is that we have information $x_3 = x_1*x_2$ but we disregard it. This introduced bias in our model, and our chains don't converge. So for all the cases where $x_1$ and $x_2$ are observed, our $x_3$ variable follows the above relation and for all the other, it's imputed randomly using `pmm`. The method that makes more sense according to the definitions given and the analysis we want to do is the second approach.
 
 ## Question 5
 
@@ -340,7 +370,7 @@ Firstly we will try to visualize the distributions of all the variables in order
 We can extract some meaning full information form the graphs, such as `age` looks quite Uniform(20,80), maybe with a heave decreasing tail, `hgt` can be approximated by Normal around `1.7` `wgt` and `SBP` look like they follow some kind of shifted Beta distribution etc. 
 
 ```{r, message=FALSE, warning=FALSE}
-par(mar=c(0.5,1,0.5,1))
+par(mar=c(3,1,3,1))
 plot_all(nhanes2)
 ```
 
@@ -466,7 +496,7 @@ so we need to make our final checks in order to trust the analysis.
 We need to check the second big disease a linear regression model might have, heteroskedasticity.
 
 By plotting the residuals against the fitted values, we see that they are centered around `0` which is a good thing.
-However we also notice that the variance doesn't remain the same as it get's bigger the further right we move on the x-axis. It looks mostly like a cloud though which is a good sign so I would say that no further action is required.
+However we also notice that the variance doesn't remain the same as it get's bigger the further right we move on the x-axis. It looks mostly like a cloud though which is a good sign so I would say that no further action is required. In order to fix this we need to model the heteroskedasticity with a model on $\epsilon_i$ and then introduce this on our Linear model in order to cure the disease. 
 Similar conclusions can be reached when checking the QQ-plot with the tails being a bit of which is always acceptable to that extend.
 
 ```{r, message=FALSE, warning=FALSE}
@@ -493,6 +523,3 @@ We present here the final confidence intervals per variable coefficient and the 
            /'.'\
           /.''.'\
           /.'.'.\
-
-
-
